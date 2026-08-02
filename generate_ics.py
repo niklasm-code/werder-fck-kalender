@@ -11,9 +11,17 @@ from fixtures import get_relevant_matches, WERDER_TEAM_ID, KAISERSLAUTERN_TEAM_I
 from reachable_cities import is_reachable_away, reachable_away_city
 from ticket_watch import known_ticket_sales
 
-ICS_PATH = Path(__file__).parent / "kalender.ics"
+PROJECT_DIR = Path(__file__).parent
+ICS_PATH = PROJECT_DIR / "kalender.ics"
 UID_DOMAIN = "werder-fck-kalender.local"
 MATCH_DURATION = timedelta(hours=2)
+
+# Kalendervarianten: (Ausgabedatei, Set der einzuschließenden teamIds, Anzeigename).
+# team_ids=None bedeutet "beide Vereine" (Standardkalender für den Nutzer selbst).
+CALENDAR_VARIANTS = [
+    (ICS_PATH, None, "Werder Bremen & 1. FC Kaiserslautern 2026-27"),
+    (PROJECT_DIR / "kaiserslautern.ics", {KAISERSLAUTERN_TEAM_ID}, "1. FC Kaiserslautern 2026-27"),
+]
 
 
 def _fold(line):
@@ -115,13 +123,17 @@ def build_ticket_event(match, sale_info):
     return [_fold(l) for l in lines]
 
 
-def generate_calendar():
+def generate_calendar(team_ids=None, calname="Werder Bremen & 1. FC Kaiserslautern 2026-27"):
+    """team_ids=None -> alle unterstützten Vereine. Sonst nur Spiele, an denen einer der
+    übergebenen teamIds beteiligt ist (Heim oder Auswärts)."""
     matches = get_relevant_matches()
     sales = known_ticket_sales()
 
     body = []
     for m in matches:
         if not m["kickoff"]:
+            continue
+        if team_ids is not None and team_ids.isdisjoint((m["home_team_id"], m["away_team_id"])):
             continue
         body.extend(build_match_event(m))
         match_id = str(m["match_id"])
@@ -134,7 +146,7 @@ def generate_calendar():
         "PRODID:-//werder-fck-kalender//Saison 2026-27//DE",
         "CALSCALE:GREGORIAN",
         "METHOD:PUBLISH",
-        "X-WR-CALNAME:Werder Bremen & 1. FC Kaiserslautern 2026-27",
+        f"X-WR-CALNAME:{calname}",
         "X-WR-TIMEZONE:UTC",
         *body,
         "END:VCALENDAR",
@@ -142,11 +154,19 @@ def generate_calendar():
     return "\r\n".join(calendar_lines) + "\r\n"
 
 
+def generate_all_calendars():
+    """Baut alle in CALENDAR_VARIANTS definierten Kalenderdateien. Gibt Liste der Pfade zurück."""
+    written = []
+    for path, team_ids, calname in CALENDAR_VARIANTS:
+        ics_content = generate_calendar(team_ids=team_ids, calname=calname)
+        path.write_text(ics_content, encoding="utf-8", newline="")
+        written.append((path, ics_content.count("BEGIN:VEVENT")))
+    return written
+
+
 if __name__ == "__main__":
     if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
         sys.stdout.reconfigure(encoding="utf-8")
 
-    ics_content = generate_calendar()
-    ICS_PATH.write_text(ics_content, encoding="utf-8", newline="")
-    event_count = ics_content.count("BEGIN:VEVENT")
-    print(f"{event_count} Events geschrieben nach {ICS_PATH}")
+    for path, event_count in generate_all_calendars():
+        print(f"{event_count} Events geschrieben nach {path}")

@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from fixtures import get_relevant_matches
-from generate_ics import generate_calendar, ICS_PATH
+from generate_ics import generate_all_calendars
 from reachable_cities import is_reachable_away
 
 REPO_DIR = Path(__file__).parent
@@ -30,8 +30,15 @@ def is_git_repo_with_remote():
 
 
 def git_commit_and_push():
-    _run(["git", "add", "kalender.ics", "state.json"])
-    status = _run(["git", "status", "--porcelain"])
+    files_to_add = ["kalender.ics", "kaiserslautern.ics"]
+    if (REPO_DIR / "state.json").exists():
+        files_to_add.append("state.json")
+    add_result = _run(["git", "add", *files_to_add])
+    if add_result.returncode != 0:
+        print(add_result.stderr.strip())
+        return
+
+    status = _run(["git", "status", "--porcelain", *files_to_add])
     if not status.stdout.strip():
         print("Keine Änderungen am Kalender - kein neuer Commit nötig.")
         return
@@ -54,9 +61,8 @@ def main():
     reachable = [m for m in matches if is_reachable_away(m)]
     print(f"{len(matches)} Pflichtspiele, davon {len(reachable)} erreichbare Auswärtsspiele.")
 
-    ics_content = generate_calendar()
-    ICS_PATH.write_text(ics_content, encoding="utf-8", newline="")
-    print(f"kalender.ics geschrieben ({ics_content.count('BEGIN:VEVENT')} Events).")
+    for path, event_count in generate_all_calendars():
+        print(f"{path.name} geschrieben ({event_count} Events).")
 
     if is_git_repo_with_remote():
         git_commit_and_push()
